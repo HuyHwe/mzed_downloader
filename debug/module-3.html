@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+
+    // For GTM, before its snippet: "pro" (MZed Pro subscriber), "member" (logged in) or "guest", so tags that
+    // must not run for members (e.g. Google Ads remarketing) can add an exception on user_status.
+    dataLayer.push({ user_status: "pro" });
+
+    // The consent banner (SiteConsent, loaded by GTM) only skips the banner for visitors it knows are
+    // outside the EEA, UK and Switzerland. The country comes from the edge; without it, everyone is asked.
+        window.__siteCountry = "VN";
+    
+    // Denied until the visitor chooses in the EEA, UK and Switzerland (updated by the CMP), granted elsewhere.
+    gtag('consent', 'default', {
+        ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied',
+        wait_for_update: 500,
+        region: ["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE","IS","LI","NO","GB","CH"]    });
+    gtag('consent', 'default', {
+        ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted', analytics_storage: 'granted'
+    });
+</script>
+<script>
+    window.mzedPixels = (function (config) {
+        var noop = function () {};
+        var api = { viewContent: noop, addToCart: noop, initiateCheckout: noop, purchase: noop, grantMarketing: noop, denyMarketing: noop };
+
+        if (!config.enabled) {
+            return api;
+        }
+
+        // Google Ads. GTM loads the Google tag for this account on every page; events are sent to it
+        // through the shared dataLayer, and Consent Mode decides what it may store and send.
+
+        // Meta. The stub queues events; the script that sends them loads only when allowed.
+        var metaLoaded = false, metaDenied = false;
+        if (config.metaPixelId) {
+            !function (f) {
+                if (f.fbq) return;
+                var n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+                if (!f._fbq) f._fbq = n;
+                n.push = n; n.loaded = true; n.version = '2.0'; n.queue = [];
+            }(window);
+            fbq('init', config.metaPixelId);
+            fbq('track', 'PageView');
+        }
+
+        function loadMeta() {
+            if (!config.metaPixelId || metaLoaded || metaDenied) return;
+            metaLoaded = true;
+            var s = document.createElement('script');
+            s.async = true;
+            s.src = 'https://connect.facebook.net/en_US/fbevents.js';
+            document.head.appendChild(s);
+        }
+
+        function grantMarketing() {
+            metaDenied = false;
+            if (window.fbq) fbq('consent', 'grant');
+            loadMeta();
+        }
+
+        function denyMarketing() {
+            metaDenied = true;
+            if (window.fbq) fbq('consent', 'revoke');
+        }
+
+        // Marketing consent comes from the site's own banner (SiteConsent, injected by GTM):
+        // the mzed_consent cookie for returning visitors, then SiteConsent.get()/onChange() once it loads.
+        // Outside the EEA/UK/CH the banner grants implicitly, so the same rule decides for both sides.
+        function marketingFromCookie() {
+            try {
+                var m = document.cookie.match(/(?:^|; )mzed_consent=([^;]*)/);
+                if (!m) return null;
+                var c = JSON.parse(decodeURIComponent(m[1]));
+                return c && c.cats ? !!c.cats.marketing : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // The banner's state carries a timestamp only once the visitor has actually decided (or a stored
+        // decision was read). Before that, "marketing: false" just means "not answered yet": no revoke.
+        function applyConsent(state) {
+            if (!state) return;
+            if (state.marketing) grantMarketing();
+            else if (state.timestamp && metaLoaded) denyMarketing();
+        }
+
+        // Who needs consent before Meta loads: the server's country when it has one (the same rule as
+        // the banner), otherwise the browser time zone as an interim stand-in. Unknown means wait.
+        function needsConsent() {
+            if (config.country) return config.consentRegions.indexOf(config.country) !== -1;
+            try {
+                var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+                return tz === '' || tz.indexOf('Europe/') === 0 || config.consentTimeZones.indexOf(tz) !== -1;
+            } catch (e) {
+                return true;
+            }
+        }
+
+        var stored = marketingFromCookie();
+        if (stored === true || (stored === null && !needsConsent())) {
+            loadMeta();
+        }
+
+        (function waitForBanner(tries) {
+            var sc = window.SiteConsent;
+            if (sc && typeof sc.get === 'function') {
+                if (typeof sc.onChange === 'function') sc.onChange(applyConsent);
+                applyConsent(sc.get());
+                return;
+            }
+            if (tries > 0) setTimeout(function () { waitForBanner(tries - 1); }, 250);
+        })(120);
+
+        function send(metaEvent, googleEvent, items, extra) {
+            items = items || [];
+            extra = extra || {};
+            var value = extra.value !== undefined ? extra.value : items.reduce(function (sum, i) { return sum + (Number(i.price) || 0) * (i.quantity || 1); }, 0);
+            var currency = extra.currency || config.currency;
+            var ids = items.map(function (i) { return String(i.sku); });
+
+            if (config.metaPixelId) {
+                var metaParams = {
+                    content_ids: ids,
+                    content_type: 'product',
+                    contents: items.map(function (i) { return { id: String(i.sku), quantity: i.quantity || 1, item_price: Number(i.price) || 0 }; }),
+                    num_items: items.length,
+                    value: Math.round(value * 100) / 100,
+                    currency: currency
+                };
+                if (items.length === 1 && items[0].name) metaParams.content_name = items[0].name;
+                extra.eventId ? fbq('track', metaEvent, metaParams, { eventID: extra.eventId }) : fbq('track', metaEvent, metaParams);
+            }
+
+            if (config.googleAdsId) {
+                var googleParams = {
+                    send_to: config.googleAdsId,
+                    value: Math.round(value * 100) / 100,
+                    currency: currency,
+                    items: ids.map(function (id) { return { id: id, google_business_vertical: 'retail' }; })
+                };
+                if (extra.transactionId) googleParams.transaction_id = extra.transactionId;
+                gtag('event', googleEvent, googleParams);
+            }
+        }
+
+        api.grantMarketing = grantMarketing;
+        api.denyMarketing = denyMarketing;
+
+        // item: { sku, name, price }
+        api.viewContent = function (item) { if (item) send('ViewContent', 'view_item', [item]); };
+        api.addToCart = function (item) { if (item) send('AddToCart', 'add_to_cart', [item]); };
+
+        // Uses the cart as rendered with the page, plus an item just added on this page.
+        api.initiateCheckout = function (justAdded) {
+            if (api._checkoutSent) return;
+            api._checkoutSent = true;
+            var items = (config.cart || []).slice();
+            if (justAdded && !items.some(function (i) { return i.sku === justAdded.sku; })) items.push(justAdded);
+            send('InitiateCheckout', 'begin_checkout', items);
+        };
+
+        // purchase: the GA4 purchase payload from MZED-370, so the transaction ID matches GA4 and Stripe.
+        api.purchase = function (purchase) {
+            if (!purchase) return;
+            var items = (purchase.items || []).map(function (i) { return { sku: i.item_id, name: i.item_name, price: i.price, quantity: i.quantity }; });
+            send('Purchase', 'purchase', items, {
+                value: purchase.value, currency: purchase.currency,
+                transactionId: purchase.transaction_id, eventId: purchase.transaction_id
+            });
+            if (config.googleAdsPurchaseSendTo) {
+                gtag('event', 'conversion', {
+                    send_to: config.googleAdsPurchaseSendTo,
+                    value: purchase.value, currency: purchase.currency, transaction_id: purchase.transaction_id
+                });
+            }
+        };
+
+        // Checkout goes straight to Stripe, so InitiateCheckout fires as the visitor heads there.
+        function isCheckoutLink(a) {
+            return a && a.host === window.location.host && /^\/checkout\/?$/.test(a.pathname);
+        }
+        function fromCartResponse(item) {
+            return item && { sku: String((item.options && item.options.sku) || item.id), name: item.name, price: Number(item.price) || 0 };
+        }
+
+        document.addEventListener('click', function (e) {
+            var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+            if (isCheckoutLink(a)) api.initiateCheckout();
+        }, true);
+
+        document.addEventListener('DOMContentLoaded', function () {
+            var $ = window.jQuery;
+            if (!$) return;
+            var lastAddPage = null;
+
+            // The site's add-to-cart buttons post to /cart/{id}/add with jQuery.
+            $(document).on('click', '.btn-add', function () { lastAddPage = $(this).data('page'); });
+            $(document).ajaxSuccess(function (event, xhr, settings) {
+                if (!/\/cart\/\d+\/add/.test(settings.url || '')) return;
+                var item = fromCartResponse(xhr.responseJSON);
+                api.addToCart(item);
+                if (lastAddPage === 'home') api.initiateCheckout(item); // the home page sends these straight to /checkout
+            });
+
+            // Partner code box, which also sends visitors straight to /checkout.
+            $(document).on('click', '#partner_go', function () {
+                if ($('#partner_code').val()) api.initiateCheckout();
+            });
+        });
+
+        return api;
+    })({"enabled":false,"userStatus":"pro","googleAdsId":null,"googleAdsPurchaseSendTo":null,"metaPixelId":null,"country":"VN","consentRegions":["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE","IS","LI","NO","GB","CH"],"consentTimeZones":["Atlantic\/Azores","Atlantic\/Madeira","Atlantic\/Canary","Atlantic\/Reykjavik","Atlantic\/Faroe","Arctic\/Longyearbyen","Asia\/Nicosia","Asia\/Famagusta"],"currency":"USD","cart":[]});
+</script>
+    <script >
+        window.dataLayer = window.dataLayer || [];
+            </script>
+    <script >
+        (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start': new Date().getTime(),event:'gtm.js'});
+        var f=d.getElementsByTagName(s)[0], j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';
+        j.async=true;j.src= 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+        })(window,document,'script','dataLayer','GTM-THZ84HX2');
+    </script>
+    
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/vnd.microsoft.icon" href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicon.ico" />
+    <link rel="shortcut icon" type="image/x-icon" href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicon.ico" />
+    <link rel="canonical" href="https://www.mzed.com/courses/how-to-photograph-everyone/modules/3" />
+
+
+    
+            <meta name="apple-itunes-app"
+            content="app-id=1456561064, affiliate-data=, app-argument=https://www.mzed.com/courses/16">
+    
+        <script type="application/ld+json">
+    {
+       "@context":"http://schema.org",
+       "@type":"VideoObject",
+       "url":"https://www.mzed.com/courses/how-to-photograph-everyone/modules/3",
+       "description":"Shooting couple portraits can result in some of the most powerful and memorable images, but come with their own unique challenges. In this module Clay shares with us his complete techniques for getting the best results when shooting couples.",
+       "name":"Couples",
+       "image":"https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/courses/large/18fe31b4f4edbf7e2ef0cafa035c1d2a.jpg",
+       "thumbnailUrl":"https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/courses/thumbnails/18fe31b4f4edbf7e2ef0cafa035c1d2a.jpg",
+       "uploadDate":"2010-09-20 00:00:00",
+       "offers":[{
+          "@type":"Offer",
+          "availability":"http://schema.org/InStock",
+          "price":"49",
+          "priceCurrency":"USD"
+       }]
+    }
+    </script>
+
+
+
+            <meta name="description" content="Shooting couple portraits can result in some of the most powerful and memorable images, but come with their own unique challenges. In this module Clay shares with us his complete techniques for getting the best results when shooting couples." />
+    
+
+    <meta property="og:locale" content="en_US" />
+            <meta property="og:type" content="website" />
+    
+            <meta property="og:title" content="Couples" />
+    
+            <meta property="og:description" content="Shooting couple portraits can result in some of the most powerful and memorable images, but come with their own unique challenges. In this module Clay shares with us his complete techniques for getting the best results when shooting couples." />
+    
+    <meta property="fb:app_id" content="786148368229136">
+    <meta property="og:url" content="https://www.mzed.com/courses/how-to-photograph-everyone/modules/3" />
+    <meta property="og:site_name" content="MZed" />
+    <meta property="article:publisher" content="https://www.facebook.com/MZedu" />
+            <meta property="og:image" content="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.comimages/courses/thumbnails/18fe31b4f4edbf7e2ef0cafa035c1d2a.jpg" />
+            
+
+    <meta name="twitter:card" content="summary" />
+            <meta name="twitter:description" content="Shooting couple portraits can result in some of the most powerful and memorable images, but come with their own unique challenges. In this module Clay shares with us his complete techniques for getting the best results when shooting couples." />
+    
+            <meta name="twitter:title" content="Couples" />
+    
+    <meta name="twitter:site" content="@mzedu_" />
+            <meta name="twitter:image" content="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.comimages/courses/thumbnails/18fe31b4f4edbf7e2ef0cafa035c1d2a.jpg" />
+    
+    <meta name="twitter:creator" content="@mzedu_" />
+
+    
+    <link rel="apple-touch-icon-precomposed" sizes="57x57"
+        href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/apple-touch-icon-57x57.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="114x114"
+        href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/apple-touch-icon-114x114.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="72x72"
+        href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/apple-touch-icon-72x72.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="144x144"
+        href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/apple-touch-icon-144x144.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="60x60"
+        href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/apple-touch-icon-60x60.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="120x120"
+        href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/apple-touch-icon-120x120.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="76x76"
+        href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/apple-touch-icon-76x76.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="152x152"
+        href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/apple-touch-icon-152x152.png" />
+    <link rel="icon" type="image/png" href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/favicon-196x196.png" />
+    <link rel="icon" type="image/png" href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/favicon-96x96.png" />
+    <link rel="icon" type="image/png" href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/favicon-32x32.png" />
+    <link rel="icon" type="image/png" href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/favicon-16x16.png" />
+    <link rel="icon" type="image/png" href="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/favicon-128.png" />
+    <meta name="application-name" content="MZed - Empowering Filmmakers" />
+    <meta name="msapplication-TileColor" content="#FFFFFF" />
+    <meta name="msapplication-TileImage" content="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/mstile-144x144.png" />
+    <meta name="msapplication-square70x70logo" content="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/mstile-70x70.png" />
+    <meta name="msapplication-square150x150logo" content="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/mstile-150x150.png" />
+    <meta name="msapplication-wide310x150logo" content="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/mstile-310x150.png" />
+    <meta name="msapplication-square310x310logo" content="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/favicons/mstile-310x310.png" />
+    
+
+    <!-- CSRF Token -->
+    <meta name="csrf-token" content="abaaqg2bS9ZRvMoaMTIkirmfLQI9DC1TTdi0H4ZY">
+
+    <title>MZed - How to Photograph Everyone | Couples</title>
+
+    <!-- Styles -->
+    <link href="//vjs.zencdn.net/5.19.2/video-js.css" rel="stylesheet">
+    <style>
+        .highlight_transcript {
+            color: #5bb6e5 !important;
+            border-radius: 3px;
+            padding: 5px;
+            border-color: #EFEFEF;
+            background-color: #EFEFEF;
+        }
+
+        h1 {
+            font-size: 28px !important;
+        }
+
+        h2 {
+            font-size: 22px !important;
+        }
+
+        .links-homepage {
+            color: black !important;
+            text-decoration: none !important;
+        }
+
+        .card-settings {
+            box-shadow: 0px 3px 15px rgba(0, 0, 0, 0.2) !important;
+            transition: all .2s ease-in-out !important;
+        }
+
+        .card-buttons {
+            padding-right: 16px !important;
+        }
+
+        .dropup,
+        .card-settings:hover {
+            position: relative;
+            z-index: 1000 !important;
+        }
+
+        .card-settings:hover {
+            transform: scale(1.01);
+        }
+
+        .productStatus {
+            font-size: 13px !important;
+        }
+
+        .btn-on {
+            background-color: #5fb7e5;
+            color: white;
+        }
+
+        .btn-off {
+            background-color: #cccccc;
+            color: #666666;
+        }
+
+        .news-article {
+            height: 370px !important;
+        }
+
+        .disabled {
+            background-color: #ddd;
+            cursor: not-allowed;
+        }
+
+
+        @media only screen and (min-width: 302px) and (max-width: 800px) {
+            .all-resources-container {
+                overflow-x: auto;
+                overflow-y: hidden;
+                /*white-space: nowrap;*/
+            }
+
+            .news-article {
+                /*height: 320px !important;*/
+            }
+
+            .resources-contents {
+                display: flex;
+            }
+
+            .card-settings {
+                /* width: 250px !important; */
+                width: 295px !important;
+            }
+
+            .productStatus {
+                font-size: 11.5px !important;
+            }
+        }
+    </style>
+    <!-- IE8 -->
+    <script src="//vjs.zencdn.net/ie8/1.1.2/videojs-ie8.min.js"></script>
+    <link href="/css/main.css?id=60d3a8252963e8d972ba" rel="stylesheet">
+    <link href="https://www.mzed.com/plugins/jquery.fancybox.min.css" rel="stylesheet">
+    <link href="https://www.mzed.com/plugins/sweetalert.css" rel="stylesheet">
+    <link href="//cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/css/toastr.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.min.css" rel="stylesheet">
+
+    <!-- CSS dependencies of child views -->
+    
+    <!-- Scripts -->
+    <script>
+        window.Laravel = {"csrfToken":"abaaqg2bS9ZRvMoaMTIkirmfLQI9DC1TTdi0H4ZY"};
+    </script>
+    <!-- pingdom -->
+    <script>
+        var _prum = [
+            ['id', '5964d8b5d1b90fed450366e1'],
+            ['mark', 'firstbyte', (new Date()).getTime()]
+        ];
+        (function() {
+            var s = document.getElementsByTagName('script')[0],
+                p = document.createElement('script');
+            p.async = 'async';
+            p.src = '//rum-static.pingdom.net/prum.min.js';
+            s.parentNode.insertBefore(p, s);
+        })();
+    </script>
+    <!-- / pingdom -->
+
+</head>
+
+
+<body>
+    <script >
+        function gtmPush() {
+                    }
+        addEventListener("load", gtmPush);
+    </script>
+    <noscript>
+        <iframe
+            src="https://www.googletagmanager.com/ns.html?id=GTM-THZ84HX2"
+            height="0"
+            width="0"
+            style="display:none;visibility:hidden"
+        ></iframe>
+    </noscript>
+
+        
+    <script src="//static.tapfiliate.com/tapfiliate.js" type="text/javascript" async></script>
+    <script type="text/javascript">
+        window['TapfiliateObject'] = i = 'tap';
+        window[i] = window[i] || function() {
+            (window[i].q = window[i].q || []).push(arguments);
+        };
+
+        tap('create', '3872-e53370');
+        tap('detectClick');
+    </script>
+
+    <div class="filter_overlay"></div>
+    <header class="container-fluid header">
+        <div class="container">
+            <div class="row">
+                <div class="col-xs-12 header__menu">
+                    <nav class="navbar header__navbar">
+    <div class="navbar-header header__navbar-header">
+        <button type="button" class="navbar-toggle header__btn" data-toggle="collapse" data-target="#mzed-nav-bar">
+            <span class="icon-bar header__btn-bar"></span>
+            <span class="icon-bar header__btn-bar"></span>
+            <span class="icon-bar header__btn-bar"></span>
+        </button>
+        <a class="navbar-brand header__brand" href="/">
+            <img src="/images/mzed-logo-1.svg" alt="MZed" class="header__logo">
+        </a>
+        <a class="navbar-brand header__brand header__brand_cined" href="https://www.cined.com" target="_blank">
+            <img src="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/logos/by-cined-color.svg" alt="By CineD" class="header__logo_cined">
+        </a>
+    </div>
+    <div class="collapse navbar-collapse" id="mzed-nav-bar">
+        <ul class="nav navbar-nav header__list">
+            <li><a href="/courses" class="header__link">Our Courses</a></li>
+            <li><a href="/educators" class="header__link">Our Educators</a></li>
+            <li><a href="/give-as-gift" class="header__link">Gift</a></li>
+            <li><a href="/news" class="header__link">News</a></li>
+        </ul>
+        <div id="header_search_bar" class="  logged_in_list ">
+            <i class="fa fa-search header__search-icon" aria-hidden="true"></i>
+            <form class="navbar-form navbar-left header__form">
+                <div class="form-group header__search">
+
+                    <input type="search" id="aa-search-input" class="aa-input-search" placeholder="Search..." name="search" autocomplete="on" />
+                    <svg class="aa-input-icon" viewBox="654 -372 1664 1664">
+                        <path d="M1806,332c0-123.3-43.8-228.8-131.5-316.5C1586.8-72.2,1481.3-116,1358-116s-228.8,43.8-316.5,131.5  C953.8,103.2,910,208.7,910,332s43.8,228.8,131.5,316.5C1129.2,736.2,1234.7,780,1358,780s228.8-43.8,316.5-131.5  C1762.2,560.8,1806,455.3,1806,332z M2318,1164c0,34.7-12.7,64.7-38,90s-55.3,38-90,38c-36,0-66-12.7-90-38l-343-342  c-119.3,82.7-252.3,124-399,124c-95.3,0-186.5-18.5-273.5-55.5s-162-87-225-150s-113-138-150-225S654,427.3,654,332  s18.5-186.5,55.5-273.5s87-162,150-225s138-113,225-150S1262.7-372,1358-372s186.5,18.5,273.5,55.5s162,87,225,150s113,138,150,225  S2062,236.7,2062,332c0,146.7-41.3,279.7-124,399l343,343C2305.7,1098.7,2318,1128.7,2318,1164z" />
+                    </svg>
+                </div>
+            </form>
+            <i class="close_search" aria-hidden="true">X</i>
+        </div>
+        <ul class="nav navbar-nav navbar-right header__list">
+                            <li>
+                    <a href="https://www.mzed.com/account" class="dropdown-toggle header__link header__link--dropdown" data-toggle="dropdown">My Account <i class="fa fa-chevron-down header__link-arrow" aria-hidden="true"></i></a>
+                    <ul class="dropdown-menu header__sublist">
+                        <li><a href="https://www.mzed.com/account" class="header__link header__link--sub">Account Settings</a></li>
+                                                    <li><a href="https://www.mzed.com/account/billing-membership" class="header__link header__link--sub">Billing & Membership</a></li>
+                            <li><a href="https://www.mzed.com/account/purchases" class="header__link header__link--sub">Purchased Content</a></li>
+                                                                            <li><a href="https://www.mzed.com/account/member-discounts" class="header__link header__link--sub">Member Discounts</a></li>
+                                                <li><a href="https://www.mzed.com/account/certificates" class="header__link header__link--sub">My Certificates</a></li>
+                        <li><a id="logout_item" href="https://www.mzed.com/logout" class="header__link header__link--sub">Log out</a></li>
+                    </ul>
+                </li>
+                        <li><a href="https://www.mzed.com/cart" class="header__link">Cart <span class="label label-warning cartCount">0</span></a></li>
+            
+        </ul>
+    </div>
+</nav>
+                </div>
+            </div>
+        </div>
+    </header>
+
+
+    
+    
+
+    <section class="container-fluid page-header">
+    <div class="container">
+        <div class="row">
+            <div class="col-xs-12 page-header__breadcrumbs">
+                <ul class="list-inline page-header__breadcrumbs-list">
+
+                                                                        <li class="page-header__breadcrumbs-item">
+                                                                    <a href="/" class="page-header__breadcrumbs-link">Home</a>
+                                
+                            </li>
+                                                    <li class="page-header__breadcrumbs-item">
+                                                                    <a href="/courses" class="page-header__breadcrumbs-link">Courses</a>
+                                
+                            </li>
+                                                    <li class="page-header__breadcrumbs-item">
+                                                                    <a href="/courses/how-to-photograph-everyone" class="page-header__breadcrumbs-link">How to Photograph Everyone</a>
+                                
+                            </li>
+                                                    <li class="page-header__breadcrumbs-item">
+                                                                    <a href="/courses/how-to-photograph-everyone/modules/3" class="page-header__breadcrumbs-link">Couples</a>
+                                
+                            </li>
+                                                            </ul>
+            </div>
+                    </div>
+    </div>
+</section>    <section class="container-fluid videoplayer modulesplayer">
+        <div class="container container--small">
+            <div class="row">
+                <div class="col-xs-12 videoplayer__copy">
+                    <h1 class="videoplayer__title">Couples</h1>
+                </div>
+                <input type="hidden" value="136" id="module_id">
+                <input type="hidden" value="2.470" id="progress">
+                <input type="hidden" value="pause" id="module_status">
+                                    <input type="hidden" value="136" id="module_id_">
+                                                    <input type="hidden" id="next_module" value="/courses/how-to-photograph-everyone/modules/4?t=0">
+                
+                <input type="hidden" id="next_module_rate_course" value="/courses/how-to-photograph-everyone/modules/4?t=0">
+
+                
+                <div class="col-xs-12 videoplayer__wrapper">
+
+    
+    
+    
+    
+            <div class='embed-container'>
+            <iframe id="mzed-player" src='https://player.vimeo.com/video/222124425' frameborder='0'
+                webkitAllowFullScreen mozallowfullscreen allowFullScreen allow="autoplay"></iframe>
+        </div>
+        <small class="shortcuts">All MZed streams are digitally watermarked and DMCA enforced. <a href="/faq#chapter_37"
+                class="shortcuts-link">Learn more here</a>.</small>
+        <div class="pull-right" style="padding-top: 5px;">
+            <small class="shortcuts">[ <a href="" data-toggle="modal" data-target="#shortcutsModal"
+                    class="shortcuts-link">keyboard shortcuts</a> ]</small>
+            <br>
+            <small style="color: white">
+                <span>Autoplay</span>
+            </small>
+
+            <div class="btn-group btn-toggle">
+                <button class="btn btn-xs btn-1"><strong>ON</strong></button>
+                <button class="btn btn-xs btn-0"><strong>OFF</strong></button>
+            </div>
+        </div>
+        <!-- Modal -->
+        <div class="modal fade" id="shortcutsModal" tabindex="-1" role="dialog" aria-labelledby="shortcutsModal"
+            aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-body">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Available shortcuts</th>
+                                    <th>&nbsp;</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong>?</strong> (<strong>Shift</strong> + <strong>/</strong>)</td>
+                                    <td>Pull up the keyboard shortcuts menu</td>
+                                </tr>
+                                <tr>
+                                    <td>⇧</td>
+                                    <td>Volume up</td>
+                                </tr>
+                                <tr>
+                                    <td>⇩</td>
+                                    <td>Volume Down</td>
+                                </tr>
+                                <tr>
+                                    <td>⇨</td>
+                                    <td>Scrub Forward</td>
+                                </tr>
+                                <tr>
+                                    <td>⇦</td>
+                                    <td>Scrub Backwards</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>L</strong></td>
+                                    <td>Like</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>S</strong></td>
+                                    <td>Share</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>W</strong></td>
+                                    <td>Watch Later</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>C</strong></td>
+                                    <td>Toggle Captions</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>H</strong></td>
+                                    <td>Toggle Player Preferences Menu</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>F</strong></td>
+                                    <td>Toggle Fullscreen</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>D</strong></td>
+                                    <td>Debug Panel for technical issues (<a
+                                            href="https://help.vimeo.com/hc/en-us/articles/224968848-Troubleshoot-playback-quality-and-buffering-issues#debugpanel">learn
+                                            more</a>)</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+            </div>
+        </div>
+    </section>
+
+
+                        <input type="hidden" value="0" id="mzed_enabled">
+                <section class="container-fluid watching">
+        <div class="container container--small">
+            <div class="row">
+                <div class="col-xs-12">
+                    <ul class="nav nav-tabs watching__tabs">
+                        
+                        <li class="watching__tabs-item active"><a
+                                    data-toggle="tab"
+                                    class="watching__toggle"
+                                    href="#description">Module Description</a></li>
+
+                        
+                        <li class="watching__tabs-item"><a
+                                    data-toggle="tab"
+                                    class="watching__toggle"
+                                    href="#course">Course Description</a></li>
+                        
+                            
+                            <li class="watching__tabs-item"><a
+                                        data-toggle="tab"
+                                        class="watching__toggle"
+                                        href="#transcript">Transcript</a></li>
+
+                            
+                            <li class="watching__tabs-item"><a
+                                        data-toggle="tab"
+                                        class="watching__toggle"
+                                        href="#notes">Notes</a></li>
+                            
+                            <li class="watching__tabs-item"><a
+                                        data-toggle="tab"
+                                        class="watching__toggle"
+                                        href="#bookmarks">Bookmarks</a></li>
+                                                                                
+                    </ul>
+                </div>
+                <div class="col-xs-12">
+                    <div class="tab-content">
+
+                        <div id="description" class="tab-pane fade in active">
+                            <p class="product__text"><p>Shooting couple portraits can result in some of the most powerful and memorable images, but come with their own unique challenges. In this module Clay shares with us his complete techniques for getting the best results when shooting couples.</p></p>
+                        </div>
+
+                        <div id="course" class="tab-pane fade course_module_fix">
+                            <div class="clearfix product__quick-info product__quick-info--alt">
+                                <ul class="product__quick-info-list">
+                                                                            <li class="product__quick-info-item">
+                                            <h3 class="product__quick-info-title">Total Time:</h3>
+                                            <h2 class="product__quick-info-value">6h 45m</h2>
+                                        </li>
+                                                                        <li class="product__quick-info-item">
+                                        <h3 class="product__quick-info-title">Skill:</h3>
+                                        <h2 class="product__quick-info-value">Beginner</h2>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="clearfix product__educator">
+                                <h2 class="product__title product__title--accent product__title--alt"><a
+                                            href="/courses/how-to-photograph-everyone">How to Photograph Everyone</a></h2>
+                                <h2 class="product__title product__title--accent product__title--alt">Description</h2>
+                                <div class="clearfix">
+                                    <p class="course_description"><p>This course takes you inside the mind of one of the world's greatest portrait photographers, Clay Blackmore. During this six hour course Clay will show you how photograph all walks of life including men, women, children, corporate portraits, wedding, maternity, group portraits and more. Each technique is broken down so you understand how to re-create these signature methods on your own and create timeless portraits like Clay.</p></p>
+                                    
+                                </div>
+                            </div>
+                            <div class="clearfix product__educator">
+                                <p></p>
+                                <h2 class="product__title product__title--accent product__title--alt">About the
+                                    Educator</h2>
+                                <div class="clearfix product__educator-content educator_modules">
+                                    <img src="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/educators/a5cc11de4d8409390a7bc75cf9d9b349.jpg"
+                                         alt="Product educator" class="product__educator-img">
+                                    <div class="product__educator-copy">
+                                        <h3 class="product__educator-name">Clay Blackmore</h3>
+                                        <h4 class="product__educator-subinfo">Photographer, Filmmaker</h4>
+                                        <a href="/courses/categories=&educators=13&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                           class="product__educator-number">1                                                 Course </a>
+                                        <div style="clear: both;"></div>
+                                        <p class="product__text product__educator-description product__educator-description--alt">Clay Blackmore is one of the most influential and sought-after photographers in the world, with a clientele that includes Larry King, Forest Whitaker, Jenna Elfman, and Maria Sharapova. A protégé of the legendary Monte Zucker, Clay is a legend in his own right.</p>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                                                    <div id="notes" class="tab-pane fade">
+                                <div class="watching__notes">
+                                    <div class="clearfix watching__notes-add">
+                                        <textarea cols="30" rows="10" class="watching__notes-input"
+                                                  id="notes_text"></textarea>
+                                        <span class="help-block">
+                                        <strong>Notes text cannot be empty</strong>
+                                    </span>
+
+                                        <a href="#"
+                                           class="course__cta course__cta--alt course__cta--small course__cta--bg-gray add_note">Add
+                                            note</a>
+                                    </div>
+                                    <div class="watching__notes-list">
+                                        
+                                        
+                                    </div>
+                                </div>
+                            </div>
+                                                                            <div id="bookmarks" class="tab-pane fade">
+                                <div class="watching__bookmarks">
+                                    <div class="watching__bookmarks-add">
+                                        <a href="#"
+                                           class="course__cta course__cta--alt course__cta--small course__cta--bg-gray video_bookmark"><i
+                                                    class="fa fa-bookmark-o watching__bookmarks-icon"
+                                                    aria-hidden="true"></i> Bookmark</a>
+                                    </div>
+                                    <div class="watching__bookmarks-list bookmarks_reload">
+                                                                            </div>
+                                </div>
+                            </div>
+                                                                                                            <div id="transcript" class="tab-pane fade in ">
+                                    <p class="product__text" style="margin-bottom: 30px;">
+                                        No transcript available.
+                                    </p>
+                                </div>
+                                                    
+                                                
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div id="bookmark_delete_modal" class="modal fade" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span
+                                aria-hidden="true">&times;</span></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete your <span class="action_type">Note</span> at Time: <span
+                                class="time">0:00</span></p>
+                    <p class="note_modal_content"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default close_delete_bookmark_confirm" data-dismiss="modal">
+                        Close
+                    </button>
+                    <button type="button" class="btn btn-danger delete_bookmark_confirm">Delete</button>
+                </div>
+            </div><!-- /.modal-content -->
+        </div><!-- /.modal-dialog -->
+    </div><!-- /.modal -->
+
+
+    <section class="container-fluid subscribe">
+    <div class="container">
+        <div class="row">
+            <div class="col-xs-12">
+                <div class="subscribe__content">
+                    <h3 class="subscribe__title">Subscribe to the <span class="subscribe__title--accent">MZed newsletter</span></h3>
+                    <div class="subscribe__copy">
+                        <p class="col-xs-12 col-sm-6 subscribe__text">The latest course announcements, news and offers.<br>Be the first to know!</p>
+                        <form class="col-xs-12 col-sm-6 subscribe__box" role="form" method="POST" action="">
+                            <input type="hidden" name="_token" value="abaaqg2bS9ZRvMoaMTIkirmfLQI9DC1TTdi0H4ZY" autocomplete="off">
+                            <input type="email" class="subscribe__input" placeholder="Email Address">
+                            <input type="submit" class="subscribe__btn" value="Subscribe">
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<footer class="container-fluid footer">
+    <div class="container">
+        <div class="row">
+            <div class="col-xs-12 col-sm-6 footer__column-wrapper--first">
+                <div class="col-xs-12 col-sm-4 footer__column">
+                    <ul class="footer__list">
+                        <li class="footer__list-item"><a href="/mzed-pro" class="footer__list-link">MZed Pro</a></li>
+                        <li class="footer__list-item"><a href="/courses" class="footer__list-link">Courses</a></li>
+                        <li class="footer__list-item"><a href="/educators" class="footer__list-link">Educators</a></li>
+                        <li class="footer__list-item"><a href="/give-as-gift" class="footer__list-link">Give as Gift</a>
+                        </li>
+                        <li class="footer__list-item"><a href="/news" class="footer__list-link">News & Articles</a></li>
+                    </ul>
+                </div>
+                <div class="col-xs-12 col-sm-4 footer__column">
+                    <ul class="footer__list">
+                        <li class="footer__list-item"><a href="/faq" class="footer__list-link">FAQs</a></li>
+                        <li class="footer__list-item"><a href="/contact-us" class="footer__list-link">Contact &amp;
+                                Support</a></li>
+                        <li class="footer__list-item"><a href="/licensing" class="footer__list-link">Content
+                                Licensing</a></li>
+                        <li class="footer__list-item"><a href="https://apps.apple.com/au/app/mzed/id1456561064"
+                                                         class="footer__list-link">Get our iOS app</a></li>
+                    </ul>
+                </div>
+                <div class="col-xs-12 col-sm-4 footer__column">
+                    <ul class="footer__list">
+                        <li class="footer__list-item"><a href="/courses"
+                                                         class="footer__list-link footer__list-link--accent">Learn
+                                about</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=1&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Filmmaking</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=2&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Photography</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=5&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Cinematography</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=9&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Lighting</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=6&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Visual Storytelling</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=11&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Editing</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=8&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Audio</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=10&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Directing</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=7&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Color Grading</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=12&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Screenwriting</a></li>
+                                                    <li class="footer__list-item"><a
+                                        href="/courses/categories=13&educators=&price=&resolutions=&difficulty=&sort=&mzed=/filter"
+                                        class="footer__list-link">Producing</a></li>
+                                            </ul>
+                </div>
+            </div>
+            <div class="col-xs-12 col-sm-6">
+                <div class="footer__social">
+                    <ul class="list-inline footer__social-list">
+                        <li class="footer__social-list-item"><a target="_blank" href="https://www.facebook.com/mzedpro"
+                                                                class="footer__social-list-link"><i
+                                        class="fa fa-facebook footer__social-list-icon" aria-hidden="true"></i></a></li>
+                        <li class="footer__social-list-item"><a target="_blank"
+                                                                href="https://twitter.com/mzedpro"
+                                                                class="footer__social-list-link"><i
+                                        class="fa fa-twitter footer__social-list-icon" aria-hidden="true"></i></a></li>
+                        <li class="footer__social-list-item"><a target="_blank" href="https://www.instagram.com/mzedpro/"
+                                                                class="footer__social-list-link"><i
+                                        class="fa fa-instagram footer__social-list-icon" aria-hidden="true"></i></a>
+                        </li>
+                        <li class="footer__social-list-item"><a target="_blank" href="https://www.youtube.com/@mzedpro"
+                                                                class="footer__social-list-link"><i
+                                        class="fa fa-youtube-play footer__social-list-icon" aria-hidden="true"></i></a>
+                        </li>
+                    </ul>
+
+                    <div style="margin-top: 30px;">
+                        <a href="https://apps.apple.com/au/app/mzed/id1456561064" target="_blank"><img
+                                    src="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/app-stores/apple/Download_on_the_App_Store_Badge.svg"
+                                    alt="Download on the App Store"></a>
+                    </div>
+
+                    <div style="margin-top: 20px;">
+                        <a href="https://www.mzed.com/faq#chapter_37">
+                            <img src="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/dmca_protected_sml_120m.png" alt="DMCA Protected">
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-xs-12 footer__extra">
+                <div class="col-xs-12 col-sm-8 footer__submenu">
+                    <ul class="list-inline footer__submenu-list">
+                        <li class="footer__submenu-list-item">© 2026 The Dorsia Group LLC</li>
+                        <li class="footer__submenu-list-item"><a href="/terms-of-service"
+                                                                 class="footer__submenu-list-link">Terms of Service</a>
+                        </li>
+                        <li class="footer__submenu-list-item"><a target="_blank"
+                                                                 href="https://www.iubenda.com/privacy-policy/7896666"
+                                                                 class="footer__submenu-list-link">Privacy Policy</a>
+                        </li>
+                    </ul>
+                </div>
+                <div class="col-xs-12 col-sm-4 footer__logo-wrapper">
+                    <img src="https://mzed-cdn1.sfo2.cdn.digitaloceanspaces.com/images/MZed-w-Tag-black-new.svg" alt="Logo"
+                         class="img-responsive footer__logo">
+                    
+                    
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+</footer>
+
+            <div class="modal fade subscribe-newsletter-modal" data-backdrop="static" data-keyboard="false" tabindex="-1" role="dialog" aria-labelledby="myLargeModalLabel">
+    <div class="modal-dialog modal-md" role="document" style="top: 25% !important;">
+        <div class="modal-content">
+            <div class="popup">
+                <div class="box">
+                    <div class="newletter-title">
+                        <h2>Join the MZed Newsletter</h2>
+                    </div>
+                    <div class="box-content newletter-content">
+                        <label>Join our newsletter list to be notified about new courses, special offers and sales, plus get a discount for 10% off!</label>
+                        <div id="frm_subscribe">
+                            <form id="subscribe_popup" data-url="https://www.mzed.com/add-to-newsletter">
+                                <input type="hidden" name="_token" value="abaaqg2bS9ZRvMoaMTIkirmfLQI9DC1TTdi0H4ZY" autocomplete="off">                                <input type="text" value="" placeholder="Email address" name="email" id="subscribe_pemail" autocomplete="off">
+                                <span id="newsletter_errors" class="help-block"></span>
+                                <span id="for_confetti" style="position: absolute !important; top: 50%; left: 50%;"></span>
+                                <div class="clearfix"></div>
+                                <button type="submit" class="button newsletter_email_submit_button"><span>Submit</span></button>
+                            </form>
+                            <div class="subscribe-bottom">
+                                <label id="newsletter_popup_dont_show_again" for="newsletter_popup_dont_show_again"><p>No thanks</p></label>
+                            </div>
+                        </div>
+                        <!-- /#frm_subscribe -->
+                    </div>
+                    <!-- /.box-content -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+
+    // Handle the 10% off for newsletter
+
+    /**
+     * If user is authenticated && (User is not mzed pro OR User is not org user)
+     *      Show modal
+     * Else user is not authenticated
+     *      Show modal
+     *
+     *
+     * Since we want to show the modal for authenticated and non authenticated user, we determine to show it by
+     * their subscription of if they're a organization user.
+     * if (User is not mzed pro OR User is not org user) && User's email is not yet in the MZed Newsletter list
+     *
+     */
+    let isSubscribedToNewsLetter = 0;
+    let isOrgAdminOrUser = 0;
+    let isMZedProUser = 1;
+</script>
+
+
+    
+
+
+
+    <!-- Include AlgoliaSearch JS Client and autocomplete.js library -->
+    <script src="//cdn.jsdelivr.net/algoliasearch/3/algoliasearch.min.js"></script>
+    <script src="//cdn.jsdelivr.net/autocomplete.js/0/autocomplete.min.js"></script>
+
+    <script type="text/javascript">
+        // Initialize autocomplete menu
+        
+            var client = algoliasearch("NYA9FXWF11", "0dbace8d55ec1f6dc33388b09507c564");
+        
+        const courses = client.initIndex('courses');
+        const educators = client.initIndex('educators');
+        const modules = client.initIndex('modules');
+        const news_articles = client.initIndex('news_articles');
+
+        autocomplete('#aa-search-input', {
+            hint: false
+        }, [{
+                source: autocomplete.sources.hits(courses, {
+                    hitsPerPage: 3
+                }),
+                displayKey: 'name',
+                templates: {
+                    header: '<div class="aa-suggestions-category algolia-course-cat">Courses</div>',
+                    suggestion: function(suggestion) {
+                        return '<span><a href="/courses/' + suggestion.slug + '">' +
+                            suggestion._highlightResult.name.value + '</a></span>';
+                    }
+                }
+            },
+            {
+                source: autocomplete.sources.hits(modules, {
+                    hitsPerPage: 3
+                }),
+                displayKey: 'name',
+                templates: {
+                    header: '<div class="aa-suggestions-category algolia-course-cat">Modules</div>',
+                    suggestion: function(suggestion) {
+                        return '<span><a href="/courses/' + suggestion.slug + '/modules/' + suggestion.order +
+                            '">' +
+                            suggestion._highlightResult.name.value + '</a></span>';
+                    }
+                }
+            },
+            {
+                source: autocomplete.sources.hits(educators, {
+                    hitsPerPage: 3
+                }),
+                displayKey: 'name',
+                templates: {
+                    header: '<div class="aa-suggestions-category algolia-course-cat">Educators</div>',
+                    suggestion: function(suggestion) {
+                        return '<span><a href="/educators/' + suggestion.slug + '">' +
+                            suggestion._highlightResult.name.value + '</a></span>';
+                    }
+                }
+            },
+            {
+                source: autocomplete.sources.hits(news_articles, {
+                    hitsPerPage: 3
+                }),
+                displayKey: 'name',
+                templates: {
+                    header: '<div class="aa-suggestions-category algolia-course-cat">News Articles</div>',
+                    suggestion: function(suggestion) {
+                        return '<span><a href="/news/' + suggestion.slug + '">' +
+                            suggestion._highlightResult.title.value + '</a></span>';
+                    }
+                }
+            }
+        ]);
+    </script>
+
+    
+
+    <script src="/js/app.js?id=c41fc1a3c2a7d432f35d"></script>
+    <script src="https://www.mzed.com/plugins/jquery.raty-fa.js"></script>
+    <script src="https://www.mzed.com/plugins/sweetalert.min.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/js/toastr.min.js"></script>
+
+
+    
+    <script src="https://www.mzed.com/plugins/jquery.fancybox.min.js"></script>
+    <script src="https://js.pusher.com/4.4/pusher.min.js"></script>
+
+        <script src="https://player.vimeo.com/api/player.js"></script>
+    <script src="/js/video.js?id=6cab8e7c08b5cb4c42ab"></script>
+            
+    <!-- JS Dependencies of child views  -->
+    
+    
+
+
+
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+            <input type="text" value="1" id="isAuth" style="display: none;">
+    
+    
+    
+    
+
+    <script>
+        var auth = "1";
+        var userId = "50181";
+        if (auth) {
+            if (Notification.permission !== "granted") {
+                Notification.requestPermission();
+            }
+        }
+    </script>
+
+    <!-- mailchimp -->
+
+    <script id="mcjs">
+        ! function(c, h, i, m, p) {
+            m = c.createElement(h), p = c.getElementsByTagName(h)[0], m.async = 1, m.src = i, p.parentNode.insertBefore(m,
+                p)
+        }(document, "script",
+            "https://chimpstatic.com/mcjs-connected/js/users/e323ca79a23d6fc5eb4eb02d9/317a22da0ef34451324e87972.js");
+    </script>
+
+    <!-- end mailchimp -->
+
+    <script>
+        // $(function() {
+        //     if (0) {
+        //         $("a.checkout__btn--green").trigger('click')
+        //     }
+        // });
+        $("a.checkout__btn--green").click(function(e) {
+            e.preventDefault();
+
+            // check for user authentication
+            if (1) {
+                let url = $(this).attr('href');
+                if ($('#discount_code').length) {
+                    url = url + '?discount_code=' + $('#discount_code').val()
+                }
+                window.location.href = url
+                return;
+            }
+
+            jQuery.noConflict(); // remove jquery conflict
+            $('#user-modal').modal('show')
+
+            var tempUrl = new URL(window.location.protocol + "//" + window.location.host + $(this).attr('href'));
+            var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname +
+                '?user_modal=login';
+            window.history.pushState({
+                path: newurl
+            }, '', newurl);
+        })
+    </script>
+</body>
+
+</html>

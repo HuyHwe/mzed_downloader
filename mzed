@@ -1,0 +1,4 @@
+#!/bin/bash
+# Launcher: runs mzed_dl.py with the private Python environment created by setup.sh
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$DIR/.venv/bin/python" -I "$DIR/mzed_dl.py" "$@"
